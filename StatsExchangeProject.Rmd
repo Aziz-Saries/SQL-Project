@@ -1,0 +1,437 @@
+---
+title: 'STA 141B Assignment 3'
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+date: "2024-05-14"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DBI)
+library(RSQLite)
+```
+
+This document follows a question format, where there are various questions that I had about the data and then implemented them in order of that question.
+
+```{r}
+db_path = "stats.stackexchange.db"
+db <- dbConnect(SQLite(), dbname = db_path)
+
+dbListTables(db)
+```
+
+Question 1: How many posts are there?
+
+This question is asking us to count the number of rows in the table called "Posts".
+```{r}
+dbGetQuery(db, "SELECT COUNT(*) AS total_posts FROM Posts")
+```
+There is 405,220 posts in this table.
+
+
+Question 2: How many posts are there since 2020? 
+
+This question is asking us to count then number of posts inside of the "Posts" table that were posted after or during the year 2020. Given the hint in the question, I assume that we will need to convert the "CreationDate" field inside of the "Posts" table into a date and sort by all values of the year portion of this date being greater than or equal to the year 2020.
+```{r, echo = FALSE}
+dbListFields(db, "Posts")
+```
+```{r, echo = FALSE}
+dates <- dbGetQuery(db, "SELECT CreationDate FROM Posts LIMIT 10")
+dates
+```
+
+
+```{r}
+dbGetQuery(db, "SELECT COUNT(*) 
+                FROM Posts
+                WHERE strftime('%Y', CreationDate) >= '2020';"
+)
+```
+There has been 110,949 posts since the year 2020.
+
+Question 3: How many posts are there each year? Describe this with a plot, commenting on any anomalies.
+
+This question is asking for the number of posts for each given year in the "Posts" table. 
+```{r}
+qry3 = "SELECT strftime('%Y', CreationDate) AS year,
+                COUNT(*) AS numPosts
+                FROM Posts
+                GROUP BY year"
+yearlyPosts = dbGetQuery(db, qry3)
+print(yearlyPosts)
+```
+
+```{r, echo = FALSE}
+yearlyPosts$year = as.integer(yearlyPosts$year)
+plot(yearlyPosts$year, yearlyPosts$numPosts,
+     main = "Number of Posts Each Year",
+     xlab = "Year", ylab = "Number of Posts",
+     col = "blue", pch = 19, lty = 1)
+```
+An obvious anomaly in the above plot, which compares both the year and the number of posts during that year, is the drastic drop in the number of posts in 2023 compared to previous years. While the number of posts generally increased from 2009 to 2016 and then remained stable around 40,000 posts per year from 2016 to 2021, there is a significant decrease in the number of posts in 2023. This is likely since the data was pulled during the year 2023 and the year hadn't yet finished and truncated the number of possible posts that could be collected in the data set.
+
+Question 4: How many posted questions are there?
+```{r, echo = FALSE}
+dbGetQuery(db, "SELECT Body
+                FROM Posts
+                WHERE PostTypeId = 1
+                LIMIT 10"
+)
+
+dbGetQuery(db, "SELECT Body
+                FROM Posts
+                WHERE PostTypeId = 2
+                LIMIT 10"
+)
+```
+
+```{r, echo = FALSE}
+columns <- dbListFields(db, "PostTypeIdMap")
+print(columns)
+```
+
+```{r}
+qry5 <- "SELECT p.PostTypeID, pm.value AS Description, COUNT(*) as Count
+FROM Posts p
+INNER JOIN PostTypeIdMap pm ON p.PostTypeID = pm.id
+GROUP BY p.PostTypeID, pm.value;"
+
+question_count <- dbGetQuery(db, qry5)
+
+print(question_count)
+```
+```{r, echo = FALSE}
+qry5Test <- "SELECT COUNT(*)
+FROM Posts
+WHERE PostTypeId = 1;"
+dbGetQuery(db, qry5Test)
+
+#Just ensuring that the number of questions we got was correct
+```
+
+There is 204,370 posted questions.
+
+Question 5: How many answers are there?
+```{r}
+#Just ensuring that the number of answers in our table from question 5 is correct, as our table we generated from number 5 already gave us the answer the how many answers there were. 
+qry7 <- "SELECT COUNT(*) AS answerCount
+FROM Posts
+WHERE PostTypeId = 2;"
+
+answerCount <- dbGetQuery(db, qry7)
+
+print(answerCount)
+```
+There is 197,928 posted answers. 
+
+Question 6: What’s the most recent question (by date-time) in the Posts table?
+This question is asking for the most recently posted question in the Posts Table. To answer this question thoroughly I will print both the date it was posted,the Id of the question, and the title of the question so anyone could find what the exact question was. 
+```{r}
+qry8 = "SELECT p.Id, p.CreationDate, p.Title
+FROM Posts p
+JOIN PostTypeIdMap ptm ON p.PostTypeId = ptm.Id
+WHERE ptm.Value = 'Question'
+ORDER BY p.CreationDate DESC
+LIMIT 1;"
+
+
+answer8 = dbGetQuery(db, qry8)
+print(answer8)
+```
+The most recent question that was posted in the Posts table was March 5th 2023. The ID of the question was 608405 and the title of the question was "Are there any papers or methods that combine mcmc and variational inference". 
+
+Question 7: How many different types of posts are there in the Posts table? Get the description of the types from the
+PostTypeIdMap table. In other words, create a table with the description of each post type and the number
+of posts of that type, and arrange it from most to least occurrences
+
+This question is asking for the number of unique post types in the Posts table and the corresponding descriptions for these post types. Then to create a table that contains both these descriptions and their corresponding number of that kind of post. 
+
+```{r}
+qry11 = "SELECT pt.value as PostTypes, COUNT(*) AS NumPosts
+FROM Posts p
+JOIN PostTypeIdMap pt ON p.PostTypeId = pt.Id
+GROUP BY pt.value
+ORDER BY NumPosts DESC;"
+
+dbGetQuery(db, qry11)
+```
+There is seven different types of posts in the Posts table and they're above under the "PostTypes" column. Their respective amounts are also in the column NumPosts that corresponds to the respective PostTypes. 
+ 
+
+Question 8: What is the date range for the questions and answers in this database?
+
+This question is asking us for the dates for the oldest and most recent questions and answers in this database. Therefore we will first get the date for the oldest and most recent question and then the oldest and most recent answer separately instead of getting the oldest and most recent question that also has an answer.  
+```{r}
+qry14Questions <- "SELECT MIN(CreationDate) AS FirstQuestionDate, MAX(CreationDate) AS LastQuestionDate
+  FROM 
+    Posts
+  WHERE 
+    PostTypeID = 1;"
+
+QuestionsRange <- dbGetQuery(db, qry14Questions)
+print(QuestionsRange)
+```
+
+The oldest question was posted on 02/02/2009 or Febuary 2nd 2009 and the most recent question was posted on March 5th 2023.
+
+```{r}
+qry14Answers <- "SELECT MIN(CreationDate) AS FirstAnswerDate, MAX(CreationDate) AS LastAnswerDate
+  FROM 
+    Posts
+  WHERE 
+    PostTypeID = 2;"
+
+AnswersRange = dbGetQuery(db, qry14Answers)
+print(AnswersRange)
+```
+The oldest answer was posted on Febuary 2nd 2009 and the most recent answer was posted on March 5th 2023. This makes logical sense that these dates would be identical as when a platform like StackOverflow is created both questions and answers are going to be continuously posted, meaning that the dates for both of these types of posts will generally start around the same time and date. This is also supported in our oldest answer being roughly three minutes after the oldest question.
+
+Question 9: How many comments are there across all posts?
+• How many posts have a comment?
+• What is the distribution of comments per question?
+
+This question is looking for us to count the amount of comments across all posts and find out how many posts have at least one comment. We are also looking to observe the distribution of comments per question. 
+```{r}
+numComments = dbGetQuery(db, "SELECT COUNT(*) AS TotalComments FROM Comments")
+numPostswithComments = dbGetQuery(db,"SELECT COUNT(DISTINCT PostId) AS PostsWithComments FROM Comments")
+commentDistqry = "SELECT CommentCount, COUNT(QuestionId) AS QuestionCount
+FROM (
+    SELECT q.Id AS QuestionId, COUNT(c.Id) AS CommentCount
+    FROM Posts q
+    LEFT JOIN Comments c ON q.Id = c.PostId
+    WHERE q.PostTypeId = 1
+    GROUP BY q.Id
+) AS CommentCounts
+GROUP BY CommentCount
+ORDER BY CommentCount;"
+
+commentsDistribution = dbGetQuery(db, commentDistqry)
+
+print(numComments)
+print(numPostswithComments)
+head(commentsDistribution)
+
+barplot(
+  height = commentsDistribution$QuestionCount,
+  names.arg = commentsDistribution$CommentCount,
+  xlab = "Number of Comments",
+  ylab = "Number of Questions",
+  main = "Distribution of Comments per Question",
+  col = "darkgreen",
+  border = "black"
+)
+```
+There is 768,069 total comments across all posts and 229,859 posts have at least one comment. Additionally we can observe that the distribution of comments per question is heavily skewed right. The bar plot displays that the majority of questions receive few comments, with a significant number of questions having zero or one comment. This what we would expect as most questions will only require minimal comments that aren't the answer, and will primarily be comments on anything ambiguous regarding the question. We expect the rest of the interactions of the posts to be answers and not additional comments.
+
+
+Question 10: Do the people who vote tend to have badges?
+This question is asking us to observe if there is any correlation between whether people vote and if people have a badge or not. 
+
+```{r}
+qry18 <- " SELECT COUNT(DISTINCT v.UserId) AS VotersWithBadgesCount
+FROM Votes v
+JOIN Badges b ON v.UserId = b.UserId;
+"
+
+dbGetQuery(db, qry18)
+
+```
+
+
+Question 11: How many posts have multiple different people who edit it?
+```{r}
+qry20 <- "SELECT COUNT(DISTINCT PostId) AS multiEditorPosts
+FROM (
+    SELECT PostId
+    FROM PostHistory
+    WHERE UserId IS NOT NULL
+    GROUP BY PostId
+    HAVING COUNT(DISTINCT UserId) > 1
+) AS subquery;"
+
+multiEditorPosts <- dbGetQuery(db, qry20)
+
+print(multiEditorPosts)
+
+```
+143,544 posts have different people who edit it. 
+
+
+Question 12: What information can we gather about the user who posted a question and the user who answered it?
+```{r}
+qry21 <- ("SELECT 
+    q.Title AS Question,
+    uq.DisplayName AS User,
+    uq.CreationDate AS UserJoinDate,
+    uq.Location AS UserLocation,
+    q.CreationDate AS QuestionDate,
+    a.Id AS AcceptedAnswerId,
+    a.CreationDate AS AcceptedAnswerDate,
+    ua.DisplayName AS UserAnswer
+  FROM 
+    Posts q
+    LEFT JOIN Users uq ON q.OwnerUserId = uq.Id
+    LEFT JOIN Posts a ON q.AcceptedAnswerId = a.Id
+    LEFT JOIN Users ua ON a.OwnerUserId = ua.Id
+  WHERE 
+    q.PostTypeId = 1")
+
+table21 = dbGetQuery(db,qry21)
+
+head(table21)
+```
+Note: There is NA's in this table since not every question posted will have a corresponding answer and therefore there will be no AnswerId, AnswerDate and User for this nonexistent answer. 
+
+Question 13: Determine the users that have only posted questions and never answered a question? (Compute the
+table containing the number of questions, number of answers and the user’s login name for this group.)
+How many are there? 
+
+This question is asking for the user display names of the users that have never answered a question but have posted a question on the website. 
+```{r}
+qryQuestionsbyUser = "SELECT 
+    u.DisplayName,
+    COUNT(DISTINCT q.Id) AS QuestionsCount,
+    COUNT(DISTINCT a.Id) AS AnswersCount
+FROM 
+    Users u
+    LEFT JOIN Posts q ON u.Id = q.OwnerUserId AND q.PostTypeId = 1
+    LEFT JOIN Posts a ON u.Id = a.OwnerUserId AND a.PostTypeId = 2
+GROUP BY 
+    u.Id
+HAVING 
+    COUNT(DISTINCT a.Id) = 0 AND COUNT(DISTINCT q.Id) > 0;"
+
+table22 = dbGetQuery(db,qryQuestionsbyUser)
+head(table22)
+
+#Getting the number of users 
+numUserNoAnswers <- nrow(table22)
+print(numUserNoAnswers)
+```
+
+There is 76,410 of these such user that have only posted questions and never answered a question. 
+
+Question 14: Compute the table with information for the 75 users with the most accepted answers. This table should
+include
+• the user’s display name,
+• creation date,
+• location,
+• the number of badges they have won,
+– the names of the badges (as a single string)
+• the dates of the earliest and most recent accepted answer (as two fields)
+– the (unique) tags for all the questions for which they had the accepted answer (as a single string)
+
+```{r}
+qry23 = "SELECT
+  U.DisplayName,
+  U.CreationDate,
+  U.Location,
+  COUNT(DISTINCT B.Id) AS NumberOfBadges,
+  GROUP_CONCAT(DISTINCT B.Name) AS BadgeNames,
+  MIN(A.CreationDate) AS EarliestAcceptedAnswer,
+  MAX(A.CreationDate) AS MostRecentAcceptedAnswer,
+  GROUP_CONCAT(DISTINCT Q.Tags) AS Tags
+FROM Users U
+JOIN Posts Q ON U.Id = Q.OwnerUserId
+JOIN Posts A ON Q.AcceptedAnswerId = A.Id
+LEFT JOIN Badges B ON U.Id = B.UserId
+WHERE Q.PostTypeId = 1
+GROUP BY U.Id
+ORDER BY COUNT(DISTINCT A.Id) DESC
+LIMIT 75"
+
+table23 = dbGetQuery(db,qry23)
+print(head(table23))
+```
+Question 15: How many questions received no answers (accepted or unaccepted)? How many questions had no
+accepted answer?
+```{r}
+qryNoAnswers = "SELECT COUNT(*) AS NoAnswersCount
+FROM Posts q
+LEFT JOIN Posts a ON q.Id = a.ParentId AND a.PostTypeId = 2
+WHERE q.PostTypeId = 1 AND a.Id IS NULL;"
+
+NoAnswers = dbGetQuery(db,qryNoAnswers)
+print(NoAnswers)
+```
+```{r}
+qryNotAccepted = "SELECT COUNT(*) AS NoAcceptedAnswerCount
+FROM Posts
+WHERE PostTypeId = 1 AND AcceptedAnswerId IS NULL;"
+NotAccepted = dbGetQuery(db,qryNotAccepted)
+print(NotAccepted)
+```
+This prints 0, which is not what I expect therefore I will need to check if the data is formatted with an empty string instead of a missing value. 
+
+```{r}
+qryNotAcceptedFixed = "SELECT COUNT(*) AS NoAcceptedAnswers
+FROM Posts
+WHERE PostTypeId = 1 AND AcceptedAnswerId = '';"
+NotAcceptedFixed = dbGetQuery(db,qryNotAcceptedFixed)
+print(NotAcceptedFixed)
+```
+This value makes much more sense. Therefore the amount of questions that had no accepted answer is 136,365. 
+
+Question 16: What is the distribution of answers per posted question?
+```{r}
+qry25<- "SELECT AnswerCount, COUNT(*) AS QuestionCount
+FROM (
+    SELECT q.Id AS QuestionId, COUNT(a.Id) AS AnswerCount
+    FROM Posts q
+    LEFT JOIN Posts a ON q.Id = a.ParentId AND a.PostTypeId = 2
+    WHERE q.PostTypeId = 1
+    GROUP BY q.Id
+) AS AnswerCounts
+GROUP BY AnswerCount
+ORDER BY AnswerCount;"
+
+table25 <- dbGetQuery(db, qry25)
+
+head(table25)
+
+answers25 <- table25$AnswerCount
+questions25 <- table25$QuestionCount
+
+barplot(
+  height = questions25,
+  names.arg = answers25,
+  xlab = "Number of Answers",
+  ylab = "Number of Questions",
+  main = "Distribution of Answers per Question",
+  col = "lightblue",
+  border = "black"
+)
+```
+The distribution of answers per posted question is heavily right skewed as you can see in the bar plot. Most questions have between 1 and 2 answers, which highlights that the community tends to provide concise and sufficient responses that don't require any additional comments or debating. 
+
+Question 17: How long does it take for questions to receive their first and accepted answers?
+```{r}
+qry26 <-"SELECT
+    q.Id AS QuestionId,
+    (julianday(MIN(a.CreationDate)) - julianday(q.CreationDate)) * 86400000 AS TimeToFirstAnswer,
+    CASE
+      WHEN q.AcceptedAnswerId IS NOT NULL THEN
+        (julianday((SELECT CreationDate FROM Posts WHERE Id = q.AcceptedAnswerId)) - julianday(q.CreationDate)) * 86400000
+      ELSE NULL
+    END AS TimeToAcceptedAnswer
+  FROM
+    Posts q
+    LEFT JOIN Posts a ON q.Id = a.ParentId
+    LEFT JOIN PostTypeIdMap qpt ON q.PostTypeId = qpt.id
+    LEFT JOIN PostTypeIdMap apt ON a.PostTypeId = apt.id
+  WHERE
+    qpt.value = 'Question' AND apt.value = 'Answer'
+  GROUP BY
+    q.Id;"
+
+table26 = dbGetQuery(db,qry26)
+
+head(table26)
+```
+
+
+
+
